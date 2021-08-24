@@ -34,6 +34,7 @@ import (
 )
 
 var storageAccountResourceName = "azurerm_storage_account"
+var allowPublicNestedItemsName = getDefaultAllowBlobPublicAccessName()
 
 func resourceStorageAccount() *pluginsdk.Resource {
 	return &pluginsdk.Resource{
@@ -234,7 +235,7 @@ func resourceStorageAccount() *pluginsdk.Resource {
 				ForceNew: true,
 			},
 
-			"allow_blob_public_access": {
+			allowPublicNestedItemsName: {
 				Type:     pluginsdk.TypeBool,
 				Optional: true,
 				Default:  getDefaultAllowBlobPublicAccess(),
@@ -910,7 +911,7 @@ func resourceStorageAccountCreate(d *pluginsdk.ResourceData, meta interface{}) e
 	minimumTLSVersion := d.Get("min_tls_version").(string)
 	isHnsEnabled := d.Get("is_hns_enabled").(bool)
 	nfsV3Enabled := d.Get("nfsv3_enabled").(bool)
-	allowBlobPublicAccess := d.Get("allow_blob_public_access").(bool)
+	allowBlobPublicAccess := d.Get(allowPublicNestedItemsName).(bool)
 
 	accountTier := d.Get("account_tier").(string)
 	replicationType := d.Get("account_replication_type").(string)
@@ -945,7 +946,7 @@ func resourceStorageAccountCreate(d *pluginsdk.ResourceData, meta interface{}) e
 	// https://github.com/hashicorp/terraform-provider-azurerm/issues/9128
 	if envName != autorestAzure.PublicCloud.Name && envName != autorestAzure.USGovernmentCloud.Name && envName != autorestAzure.ChinaCloud.Name {
 		if allowBlobPublicAccess || minimumTLSVersion != string(storage.TLS10) {
-			return fmt.Errorf(`"allow_blob_public_access" and "min_tls_version" are not supported for a Storage Account located in %q`, envName)
+			return fmt.Errorf(`%q and "min_tls_version" are not supported for a Storage Account located in %q`, allowPublicNestedItemsName, envName)
 		}
 	} else {
 		parameters.AccountPropertiesCreateParameters.AllowBlobPublicAccess = &allowBlobPublicAccess
@@ -1296,8 +1297,8 @@ func resourceStorageAccountUpdate(d *pluginsdk.ResourceData, meta interface{}) e
 		}
 	}
 
-	if d.HasChange("allow_blob_public_access") {
-		allowBlobPublicAccess := d.Get("allow_blob_public_access").(bool)
+	if d.HasChange(allowPublicNestedItemsName) {
+		allowBlobPublicAccess := d.Get(allowPublicNestedItemsName).(bool)
 
 		// For all Clouds except Public, China, and USGovernmentCloud, don't specify "allow_blob_public_access" in request body.
 		// https://github.com/hashicorp/terraform-provider-azurerm/issues/7812
@@ -1305,7 +1306,7 @@ func resourceStorageAccountUpdate(d *pluginsdk.ResourceData, meta interface{}) e
 		// https://github.com/hashicorp/terraform-provider-azurerm/issues/9128
 		if envName != autorestAzure.PublicCloud.Name && envName != autorestAzure.USGovernmentCloud.Name && envName != autorestAzure.ChinaCloud.Name {
 			if allowBlobPublicAccess {
-				return fmt.Errorf(`"allow_blob_public_access" is not supported for a Storage Account located in %q`, envName)
+				return fmt.Errorf(`%q is not supported for a Storage Account located in %q`, allowPublicNestedItemsName, envName)
 			}
 		} else {
 			opts := storage.AccountUpdateParameters{
@@ -1586,9 +1587,9 @@ func resourceStorageAccountRead(d *pluginsdk.ResourceData, meta interface{}) err
 			if props.AllowBlobPublicAccess != nil {
 				allowBlobPublicAccess = *props.AllowBlobPublicAccess
 			}
-			d.Set("allow_blob_public_access", allowBlobPublicAccess)
+			d.Set(allowPublicNestedItemsName, allowBlobPublicAccess)
 		} else {
-			d.Set("allow_blob_public_access", *props.AllowBlobPublicAccess)
+			d.Set(allowPublicNestedItemsName, *props.AllowBlobPublicAccess)
 		}
 
 		// For all Clouds except Public, China, and USGovernmentCloud, "min_tls_version" is not returned from Azure so always persist the default values for "min_tls_version".
@@ -2929,4 +2930,11 @@ func getDefaultAllowBlobPublicAccess() bool {
 	// The default value for the field that controls if the blobs that belong to a storage account
 	// can allow anonymous access or not will change from false to true in 3.0.
 	return features.ThreePointOh()
+}
+
+func getDefaultAllowBlobPublicAccessName() string {
+	if features.ThreePointOh() {
+		return "allow_nested_items_to_be_public"
+	}
+	return "allow_blob_public_access"
 }
